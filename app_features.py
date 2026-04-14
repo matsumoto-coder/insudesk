@@ -57,7 +57,6 @@ from app_core import (
     update_policy,
     update_targets,
 )
-from bcp.ui import render_bcp_section
 
 
 def show_calendar_page(customers_df, activity_df, dm_history_df, todos_df, policies_df):
@@ -281,8 +280,8 @@ def show_customer_page(customers_df, user_name):
                 st.rerun()
     
         with tab2:
-        if customers_df.empty:
-            st.info("編集できる顧客がありません。")
+            if customers_df.empty:
+                 st.info("編集できる顧客がありません。")
         else:
             customer_ids = customers_df["customer_id"].tolist()
             selected_id = st.selectbox(
