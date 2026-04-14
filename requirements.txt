@@ -1,8 +1,11 @@
 streamlit
 pandas
+requests
 authlib
 google-api-python-client
 google-auth
 google-auth-httplib2
 google-auth-oauthlib
 pillow
+openpyxl
+xlsxwriter
