@@ -373,7 +373,6 @@ def show_customer_detail_page(customer_id, customers_df):
         st.write("### 備考")
         st.write(row.get("memo"))
 
-    # ===== BCP独立モジュール =====
     render_bcp_section(row)
 
     st.write("### 次回アクション")
