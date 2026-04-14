@@ -1,5 +1,4 @@
 import io
-import os
 import shutil
 import sqlite3
 from datetime import date, datetime, timedelta
@@ -8,14 +7,7 @@ from urllib.parse import quote_plus
 
 import pandas as pd
 import streamlit as st
-from PIL import Image
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 
-# =========================================================
-# 基本設定
-# =========================================================
 APP_TITLE = "InsuDesk"
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "insudesk.db"
@@ -24,11 +16,6 @@ IMAGE_DIR = BASE_DIR / "customer_images"
 
 BACKUP_DIR.mkdir(exist_ok=True)
 IMAGE_DIR.mkdir(exist_ok=True)
-
-ALLOWED_EMAILS = [
-    # 必要なら制限
-    # "matsumoto@lifepartners.me",
-]
 
 CORPORATE_INSURANCE_OPTIONS = [
     "自動車AAP・AAI",
@@ -63,18 +50,11 @@ LIFE_INSURANCE_OPTIONS = ["第一分野", "第三分野"]
 
 ALL_INSURANCE_OPTIONS = list(
     dict.fromkeys(
-        CORPORATE_INSURANCE_OPTIONS + PERSONAL_INSURANCE_OPTIONS + LIFE_INSURANCE_OPTIONS
+        CORPORATE_INSURANCE_OPTIONS
+        + PERSONAL_INSURANCE_OPTIONS
+        + LIFE_INSURANCE_OPTIONS
     )
 )
-
-RESULT_CODE_OPTIONS = [
-    "A 成立",
-    "B 見積提出",
-    "C 新規見込",
-    "D 断り",
-    "K 更新案内",
-    "G 事故対応",
-]
 
 INDUSTRY_OPTIONS = ["製造", "建設", "運送", "医療", "その他"]
 NANKAI_PRIORITY_OPTIONS = ["高", "中", "低"]
@@ -86,6 +66,14 @@ DM_REACTION_OPTIONS = ["反応なし", "見積依頼", "再訪問", "契約", "�
 OPPORTUNITY_STATUS_OPTIONS = ["見込", "見積中", "提案済", "検討中", "成約", "失注"]
 INSURANCE_PROGRESS_OPTIONS = ["加入中", "提案中", "未提案"]
 KEISHO_OPTIONS = ["様", "御中"]
+RESULT_CODE_OPTIONS = [
+    "A 成立",
+    "B 見積提出",
+    "C 新規見込",
+    "D 断り",
+    "K 更新案内",
+    "G 事故対応",
+]
 
 st.set_page_config(page_title=APP_TITLE, layout="wide")
 
@@ -95,21 +83,18 @@ st.markdown(
     html, body, [class*="css"], [class*="st-"], .main, .block-container {
         font-family: "Meiryo", "メイリオ", sans-serif !important;
     }
-    .stButton>button {
-        border-radius: 10px;
-    }
-    .card-box {
-        border: 1px solid #ddd;
+    .section-box {
+        border: 1px solid #dddddd;
         border-radius: 12px;
-        padding: 12px;
-        margin-bottom: 12px;
+        padding: 14px;
+        margin-bottom: 14px;
         background: #fafafa;
     }
     .visit-box {
         border: 2px solid #0f766e;
         border-radius: 14px;
         padding: 14px;
-        margin-bottom: 12px;
+        margin-bottom: 16px;
         background: #ecfeff;
     }
     </style>
@@ -117,14 +102,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# =========================================================
-# 認証
-# =========================================================
-user_email = ""
-user_name = "本人"
-# =========================================================
-# DB
-# =========================================================
+
 def get_conn():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
@@ -144,6 +122,39 @@ def load_df(sql: str, params=()):
     df = pd.read_sql_query(sql, conn, params=params)
     conn.close()
     return df
+
+
+def safe_int(value):
+    try:
+        if pd.isna(value):
+            return 0
+        return int(float(value))
+    except Exception:
+        return 0
+
+
+def parse_date_str(value):
+    dt = pd.to_datetime(value, errors="coerce")
+    if pd.isna(dt):
+        return None
+    return dt.date()
+
+
+def days_since(value):
+    d = parse_date_str(value)
+    if not d:
+        return None
+    return (date.today() - d).days
+
+
+def calc_rate(numerator, denominator):
+    if denominator in [0, None]:
+        return 0.0
+    return round((numerator / denominator) * 100, 1)
+
+
+def format_currency(x):
+    return f"{safe_int(x):,}円"
 
 
 def init_db():
@@ -328,41 +339,6 @@ def init_db():
 
 init_db()
 
-# =========================================================
-# 共通関数
-# =========================================================
-def safe_int(value):
-    try:
-        if pd.isna(value):
-            return 0
-        return int(float(value))
-    except Exception:
-        return 0
-
-
-def parse_date_str(value):
-    dt = pd.to_datetime(value, errors="coerce")
-    if pd.isna(dt):
-        return None
-    return dt.date()
-
-
-def days_since(value):
-    d = parse_date_str(value)
-    if not d:
-        return None
-    return (date.today() - d).days
-
-
-def calc_rate(numerator, denominator):
-    if denominator in [0, None]:
-        return 0.0
-    return round((numerator / denominator) * 100, 1)
-
-
-def format_currency(x):
-    return f"{safe_int(x):,}円"
-
 
 def get_customers_df():
     return load_df("SELECT * FROM customers ORDER BY customer_id DESC")
@@ -409,6 +385,7 @@ def to_monthly(df):
     work = work.dropna(subset=["date"])
     if work.empty:
         return pd.DataFrame()
+
     work["month"] = work["date"].dt.to_period("M").astype(str)
     monthly = work.groupby("month", as_index=False).agg({
         "new_cases": "sum",
@@ -590,63 +567,12 @@ def make_forecast(current_inforce, monthly_new_cases, avg_premium_per_case, avg_
 
     return pd.DataFrame(rows)
 
-# =========================================================
-# バックアップ
-# =========================================================
 
 def backup_to_local():
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_path = BACKUP_DIR / f"insudesk_backup_{ts}.db"
     shutil.copy2(DB_PATH, backup_path)
     return backup_path
-
-
-def backup_to_gdrive(file_path: Path):
-    creds = Credentials(
-        None,
-        refresh_token=st.secrets["gdrive_oauth"]["refresh_token"],
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=st.secrets["gdrive_oauth"]["client_id"],
-        client_secret=st.secrets["gdrive_oauth"]["client_secret"],
-        scopes=["https://www.googleapis.com/auth/drive.file"],
-    )
-
-    service = build("drive", "v3", credentials=creds)
-
-    file_metadata = {
-        "name": file_path.name,
-        "parents": [st.secrets["gdrive_oauth"]["folder_id"]],
-    }
-
-    with open(file_path, "rb") as f:
-        media = MediaIoBaseUpload(
-            io.BytesIO(f.read()),
-            mimetype="application/x-sqlite3",
-            resumable=False,
-        )
-
-    uploaded = service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields="id,name",
-    ).execute()
-
-    return uploaded["name"]
-
-def run_backup(mode: str):
-    results = []
-    local_path = None
-
-    if mode in ["ローカルのみ", "ローカル + Google Drive"]:
-        local_path = backup_to_local()
-        results.append(f"ローカル保存: {local_path.name}")
-
-    if mode in ["Google Driveのみ", "ローカル + Google Drive"]:
-        source_path = local_path if local_path else DB_PATH
-        uploaded_name = backup_to_gdrive(source_path)
-        results.append(f"Google Drive保存: {uploaded_name}")
-
-    return results
 
 
 def list_local_backups():
@@ -661,9 +587,7 @@ def list_local_backups():
         })
     return pd.DataFrame(rows)
 
-# =========================================================
-# CRUD
-# =========================================================
+
 def insert_customer(data):
     exec_sql("""
         INSERT INTO customers (
@@ -831,9 +755,7 @@ def finish_visit(customer_id, result_code, memo, insurance_type, carrier_type, r
         "end": end_dt.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
-# =========================================================
-# データ読込
-# =========================================================
+
 customers_df = get_customers_df()
 kpi_df = get_kpi_df()
 activity_df = get_activity_df()
@@ -846,23 +768,17 @@ target = get_targets_row()
 
 customer_names = customers_df["company_name"].dropna().astype(str).tolist() if not customers_df.empty else []
 
-# =========================================================
-# セッション
-# =========================================================
 if "menu" not in st.session_state:
     st.session_state["menu"] = "カレンダー"
 
 if "sales_from_visit" not in st.session_state:
     st.session_state["sales_from_visit"] = False
 
-# =========================================================
-# サイドバー
-# =========================================================
+user_name = "本人"
+
 st.sidebar.title(APP_TITLE)
 st.sidebar.caption(f"ログイン中: {user_name}")
 
-
-# 題名なし・仕切りのみ
 for item in ["カレンダー", "ToDo一覧"]:
     if st.sidebar.button(item, use_container_width=True, key=f"m_{item}"):
         st.session_state["menu"] = item
@@ -897,9 +813,6 @@ menu = st.session_state["menu"]
 st.title(APP_TITLE)
 st.caption(f"現在メニュー: {menu}")
 
-# =========================================================
-# 画面
-# =========================================================
 if menu == "スマホ簡易ホーム":
     st.subheader("スマホ簡易ホーム")
 
@@ -924,69 +837,32 @@ if menu == "スマホ簡易ホーム":
     else:
         st.dataframe(dm_alerts.head(10), use_container_width=True)
 
-    st.write("### クイック活動入力")
-    if customer_names:
-        quick_customer = st.selectbox("顧客", customer_names, key="quick_customer")
-        quick_type = st.radio("活動", ["訪問", "TEL", "メール", "提案"], horizontal=True)
-        quick_result = st.radio("結果", ["見積依頼", "再訪問", "保留", "契約"], horizontal=True)
-        quick_memo = st.text_input("メモ")
-        if st.button("クイック保存", use_container_width=True):
-            customer_row = customers_df[customers_df["company_name"] == quick_customer].iloc[0]
-            insert_activity((
-                str(date.today()),
-                int(customer_row["customer_id"]),
-                quick_customer,
-                quick_type,
-                user_name or "本人",
-                "",
-                quick_memo,
-                "",
-                str(date.today()),
-                quick_result,
-                "中",
-            ))
-            st.success("保存しました。")
-            st.rerun()
-
 elif menu == "バックアップ":
     st.subheader("バックアップ")
-
-    backup_mode = st.radio(
-        "バックアップ保存先",
-        ["ローカルのみ", "Google Driveのみ", "ローカル + Google Drive"],
-        horizontal=True
-    )
+    st.info("Google Drive自動保存はいったん外し、ローカル保存 + DBダウンロードの安定版です。")
 
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("今すぐバックアップ作成", use_container_width=True):
+        if st.button("今すぐローカルバックアップ作成", use_container_width=True):
             try:
-                results = run_backup(backup_mode)
-                for r in results:
-                    st.success(r)
+                backup_path = backup_to_local()
+                st.success(f"ローカル保存: {backup_path.name}")
             except Exception as e:
                 st.error(f"バックアップ失敗: {e}")
-    with open(db_path, "rb") as f:
-    st.download_button(
-        "DBをダウンロード",
-        data=f,
-        file_name=f"insudesk_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db",
-        mime="application/octet-stream",
-        use_container_width=True,
-    )
+
     with c2:
         if DB_PATH.exists():
             with open(DB_PATH, "rb") as f:
                 st.download_button(
-                    "本体DBをダウンロード",
+                    "DBをダウンロード",
                     data=f.read(),
-                    file_name="insudesk.db",
+                    file_name=f"insudesk_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db",
                     mime="application/octet-stream",
-                    use_container_width=True
+                    use_container_width=True,
                 )
 
-    st.write("### ローカルバックアップ一覧")
     backups_df = list_local_backups()
+    st.write("### ローカルバックアップ一覧")
     if backups_df.empty:
         st.info("ローカルバックアップはありません。")
     else:
@@ -1014,7 +890,7 @@ elif menu == "カレンダー":
             for i, d in enumerate(week):
                 with cols[i]:
                     muted = "color:#999;" if d.month != base_date.month else ""
-                    st.markdown(f'<div class="card-box"><div style="{muted}"><b>{d.day}</b></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="section-box"><div style="{muted}"><b>{d.day}</b></div>', unsafe_allow_html=True)
                     for e in event_map.get(d, [])[:4]:
                         st.write(f"• {e['label']}")
                     st.markdown("</div>", unsafe_allow_html=True)
@@ -1025,7 +901,7 @@ elif menu == "カレンダー":
         cols = st.columns(7)
         for i, d in enumerate(week_days):
             with cols[i]:
-                st.markdown(f'<div class="card-box"><b>{d.month}/{d.day}</b>', unsafe_allow_html=True)
+                st.markdown(f'<div class="section-box"><b>{d.month}/{d.day}</b>', unsafe_allow_html=True)
                 day_events = event_map.get(d, [])
                 if not day_events:
                     st.write("予定なし")
@@ -1085,6 +961,15 @@ elif menu == "顧客管理":
     tab1, tab2, tab3 = st.tabs(["顧客追加", "顧客編集", "顧客一覧"])
 
     with tab1:
+        business_card_file = st.file_uploader(
+            "名刺画像アップロード",
+            type=["png", "jpg", "jpeg", "webp"],
+            key="business_card_upload"
+        )
+        zoom_preview = st.slider("名刺プレビュー倍率", 50, 200, 100, 10)
+        if business_card_file is not None:
+            st.image(business_card_file, caption="名刺プレビュー", width=int(320 * zoom_preview / 100))
+
         category = st.radio("区分", ["法人", "個人"], horizontal=True)
         company_name = st.text_input("法人名 / 個人名")
         department_name = st.text_input("部署名")
@@ -1099,7 +984,7 @@ elif menu == "顧客管理":
         address1 = st.text_input("住所1")
         address2 = st.text_input("住所2")
         website_url = st.text_input("会社HP / Webサイト", placeholder="https://...")
-        staff = st.text_input("自社担当者", value=user_name or "本人")
+        staff = st.text_input("自社担当者", value=user_name)
         status = st.selectbox("状態", ["見込", "提案中", "契約中", "失注", "既契約"])
         customer_rank = st.selectbox("顧客ランク", ["A", "B", "C"])
         insurance_types = st.multiselect("保険種類", ALL_INSURANCE_OPTIONS)
@@ -1127,16 +1012,6 @@ elif menu == "顧客管理":
             height=100,
             placeholder="面談メモや OneNote URL を貼り付け"
         )
-
-        business_card_file = st.file_uploader(
-            "名刺画像アップロード",
-            type=["png", "jpg", "jpeg", "webp"],
-            key="business_card_upload"
-        )
-        zoom_preview = st.slider("名刺プレビュー倍率", 50, 200, 100, 10)
-
-        if business_card_file is not None:
-            st.image(business_card_file, caption="名刺プレビュー", width=int(320 * zoom_preview / 100))
 
         last_contact_date = st.date_input("最終接触日", value=date.today())
         next_action = st.text_input("次回アクション")
@@ -1280,7 +1155,6 @@ elif menu == "顧客詳細":
                 else:
                     st.success(f"訪問終了を記録しました（滞在 {result['duration_minutes']}分）")
 
-                    # A成立 → 日次入力へ自動遷移
                     if result_code == "A 成立":
                         st.session_state["sales_from_visit"] = True
                         st.session_state["sales_company"] = row["company_name"]
@@ -1290,7 +1164,6 @@ elif menu == "顧客詳細":
                         st.session_state["menu"] = "日次入力"
                         st.rerun()
 
-                    # C新規見込 → 7日後ToDo
                     elif result_code == "C 新規見込":
                         next_date = (date.today() + timedelta(days=7)).strftime("%Y-%m-%d")
                         insert_todo((
@@ -1389,7 +1262,7 @@ elif menu == "日次入力":
     with st.form("daily_input_form"):
         input_date = st.date_input("日付", value=date.today())
         company_name = st.text_input("会社名", value=st.session_state.get("sales_company", ""))
-        staff = st.text_input("担当者名", value=user_name or "本人")
+        staff = st.text_input("担当者名", value=user_name)
         new_cases = st.number_input("新規件数", min_value=0, value=0)
         teleapo = st.number_input("テレアポ件数", min_value=0, value=0)
         visits = st.number_input("訪問件数", min_value=0, value=1 if st.session_state.get("sales_from_visit") else 0)
@@ -1427,18 +1300,15 @@ elif menu == "日次入力":
                 renewal_month, memo
             ))
             st.success("保存しました。")
-
             st.session_state["sales_from_visit"] = False
             st.session_state["sales_company"] = ""
             st.session_state["sales_insurance_type"] = ""
             st.session_state["sales_carrier_type"] = "AIG"
             st.session_state["sales_renewal_month"] = 0
-
             st.rerun()
 
 elif menu == "訪問履歴":
     st.subheader("訪問履歴")
-
     tab1, tab2 = st.tabs(["履歴追加", "履歴一覧"])
 
     with tab1:
@@ -1449,7 +1319,7 @@ elif menu == "訪問履歴":
             customer_row = customers_df[customers_df["company_name"] == activity_customer].iloc[0]
             quick_type = st.radio("活動種別", ACTIVITY_TYPE_OPTIONS, horizontal=True)
             activity_date = st.date_input("日付", value=date.today())
-            activity_staff = st.text_input("担当者", value=user_name or "本人")
+            activity_staff = st.text_input("担当者", value=user_name)
             activity_insurance = st.selectbox("提案商品", [""] + ALL_INSURANCE_OPTIONS)
             activity_memo = st.text_input("内容メモ")
             activity_next_action = st.text_input("次回アクション")
@@ -1474,7 +1344,6 @@ elif menu == "訪問履歴":
 
 elif menu == "案件管理":
     st.subheader("案件管理")
-
     tab1, tab2 = st.tabs(["案件追加", "案件一覧"])
 
     with tab1:
@@ -1506,7 +1375,6 @@ elif menu == "案件管理":
 
 elif menu == "DM発送履歴":
     st.subheader("DM発送履歴")
-
     tab1, tab2, tab3 = st.tabs(["DM追加", "DM一覧", "未接触アラート"])
 
     with tab1:
@@ -1517,7 +1385,7 @@ elif menu == "DM発送履歴":
             dm_type = st.radio("DM種類", DM_TYPE_OPTIONS, horizontal=True)
             dm_title = st.text_input("タイトル")
             dm_memo = st.text_input("メモ")
-            dm_staff = st.text_input("担当者", value=user_name or "本人")
+            dm_staff = st.text_input("担当者", value=user_name)
             dm_followup_due_date = st.date_input("フォロー予定日", value=date.today() + timedelta(days=14))
             dm_followup_done = st.selectbox("フォロー対応", ["未対応", "済"])
             dm_reaction = st.selectbox("反応", DM_REACTION_OPTIONS)
@@ -1546,7 +1414,6 @@ elif menu == "DM発送履歴":
 
 elif menu == "保険加入状況":
     st.subheader("保険加入状況")
-
     tab1, tab2 = st.tabs(["加入状況追加", "加入状況一覧"])
 
     with tab1:
