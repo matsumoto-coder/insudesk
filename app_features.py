@@ -1,7 +1,6 @@
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote_plus
-from bcp.ui import render_bcp_section
 
 import pandas as pd
 import streamlit as st
@@ -57,6 +56,7 @@ from app_core import (
     update_policy,
     update_targets,
 )
+from bcp.ui import render_bcp_section
 
 
 def show_calendar_page(customers_df, activity_df, dm_history_df, todos_df, policies_df):
@@ -278,107 +278,438 @@ def show_customer_page(customers_df, user_name):
                 st.session_state["zip_auto_address"] = ""
                 st.success("顧客を保存しました。")
                 st.rerun()
-    
-        with tab2:
-            if customers_df.empty:
-                 st.info("編集できる顧客がありません。")
-        else:
-            customer_ids = customers_df["customer_id"].tolist()
-            selected_id = st.selectbox(
-                "編集する顧客",
-                options=customer_ids,
-                format_func=lambda x: f"{customers_df[customers_df['customer_id'] == x].iloc[0]['company_name']}（ID:{x}）",
-            )
-            row = customers_df[customers_df["customer_id"] == selected_id].iloc[0]
 
-            company_name_edit = st.text_input("法人名 / 個人名", value=row.get("company_name", ""))
-            contact_name_edit = st.text_input("担当者氏名", value=row.get("contact_name", ""))
-            phone_edit = st.text_input("電話番号", value=row.get("phone", ""))
-            email_edit = st.text_input("メール", value=row.get("email", ""))
-            address1_edit = st.text_input("住所1", value=row.get("address1", ""))
-            status_edit = st.selectbox(
+    with tab2:
+        if customers_df.empty:
+            st.info("顧客データがありません。")
+        else:
+            edit_target = st.selectbox("編集する顧客を選択", customers_df["company_name"].tolist())
+            row = customers_df[customers_df["company_name"] == edit_target].iloc[0]
+
+            edit_category = st.radio("区分", ["法人", "個人"], horizontal=True, index=0 if row["category"] == "法人" else 1)
+            edit_company_name = st.text_input("法人名 / 個人名", value=row["company_name"], key="edit_company_name")
+            edit_department_name = st.text_input("部署名", value=row["department_name"])
+            edit_attn_name = st.text_input("宛名名", value=row["attn_name"])
+            edit_keisho = st.selectbox("敬称", KEISHO_OPTIONS, index=KEISHO_OPTIONS.index(row["keisho"]) if row["keisho"] in KEISHO_OPTIONS else 0)
+            edit_contact_name = st.text_input("担当者氏名", value=row["contact_name"])
+            edit_rep_phone = st.text_input("法人代表電話", value=row["rep_phone"])
+            edit_contact_phone = st.text_input("担当者電話番号", value=row["contact_phone"])
+            edit_phone = st.text_input("その他電話番号", value=row["phone"])
+            edit_email = st.text_input("メール", value=row["email"])
+            edit_postal_code = st.text_input("郵便番号", value=row["postal_code"])
+            edit_address1 = st.text_input("住所1", value=row["address1"])
+            edit_address2 = st.text_input("住所2", value=row["address2"])
+            edit_website_url = st.text_input("会社HP / Webサイト", value=row["website_url"])
+            edit_staff = st.text_input("自社担当者", value=row["staff"])
+            edit_status = st.selectbox(
                 "状態",
                 ["見込", "提案中", "契約中", "失注", "既契約"],
-                index=["見込", "提案中", "契約中", "失注", "既契約"].index(row.get("status", "見込"))
-                if row.get("status", "見込") in ["見込", "提案中", "契約中", "失注", "既契約"]
-                else 0,
+                index=["見込", "提案中", "契約中", "失注", "既契約"].index(row["status"]) if row["status"] in ["見込", "提案中", "契約中", "失注", "既契約"] else 0,
             )
-            memo_edit = st.text_area("備考", value=row.get("memo", ""))
+            edit_customer_rank = st.selectbox(
+                "顧客ランク",
+                ["A", "B", "C"],
+                index=["A", "B", "C"].index(row["customer_rank"]) if row["customer_rank"] in ["A", "B", "C"] else 0,
+            )
+            current_ins_types = [x for x in str(row["insurance_types"]).split(",") if x]
+            edit_insurance_types = st.multiselect("参考用 保険種類", ALL_INSURANCE_OPTIONS, default=current_ins_types)
+            edit_sonpo_annual_premium = st.number_input("損保年間保険料（円）", min_value=0, value=safe_int(row["sonpo_annual_premium"]), step=10000, key="edit_sonpo")
+            edit_seiho_annual_premium = st.number_input("生保年間保険料（円）", min_value=0, value=safe_int(row["seiho_annual_premium"]), step=10000, key="edit_seiho")
+            edit_renewal_month = st.selectbox("参考用 更新月", list(range(0, 13)), index=normalize_renewal_month(row["renewal_month"]), format_func=renewal_label)
 
-            col_edit1, col_edit2 = st.columns(2)
-            with col_edit1:
-                if st.button("更新", use_container_width=True):
+            if edit_category == "法人":
+                edit_industry = st.selectbox(
+                    "業種",
+                    INDUSTRY_OPTIONS,
+                    index=INDUSTRY_OPTIONS.index(row["industry"]) if row["industry"] in INDUSTRY_OPTIONS else 0,
+                )
+                edit_annual_sales = st.number_input("年商（円）", min_value=0, value=safe_int(row["annual_sales"]), step=1000000)
+                edit_employee_count = st.number_input("従業員数", min_value=0, value=safe_int(row["employee_count"]))
+                edit_nankai_priority = st.selectbox(
+                    "南海トラフ優先度",
+                    NANKAI_PRIORITY_OPTIONS,
+                    index=NANKAI_PRIORITY_OPTIONS.index(row["nankai_priority"]) if row["nankai_priority"] in NANKAI_PRIORITY_OPTIONS else 0,
+                )
+                edit_bcp_exists = st.selectbox(
+                    "BCP策定有無",
+                    ["有", "無"],
+                    index=["有", "無"].index(row["bcp_exists"]) if row["bcp_exists"] in ["有", "無"] else 0,
+                )
+                edit_continuity_plan_applied = st.selectbox(
+                    "事業継続強化計画申請有無",
+                    ["有", "無"],
+                    index=["有", "無"].index(row["continuity_plan_applied"]) if row["continuity_plan_applied"] in ["有", "無"] else 0,
+                )
+            else:
+                edit_industry = ""
+                edit_annual_sales = 0
+                edit_employee_count = 0
+                edit_nankai_priority = ""
+                edit_bcp_exists = ""
+                edit_continuity_plan_applied = ""
+
+            edit_memo = st.text_area("備考 / OneNoteリンク", value=row["memo"], height=100)
+            current_card_path = str(row.get("business_card_image", "")).strip()
+            if current_card_path and Path(current_card_path).exists():
+                st.image(current_card_path, caption="現在の名刺画像", width=240)
+
+            edit_business_card_file = st.file_uploader(
+                "名刺画像を差し替え",
+                type=["png", "jpg", "jpeg", "webp"],
+                key="edit_business_card_upload",
+            )
+
+            edit_last_contact_date = st.date_input("最終接触日", value=parse_date_str(row["last_contact_date"]) or date.today())
+            edit_next_action = st.text_input("次回アクション", value=row["next_action"])
+            edit_next_action_date = st.date_input("次回予定日", value=parse_date_str(row["next_action_date"]) or date.today())
+
+            c_edit1, c_edit2 = st.columns(2)
+            with c_edit1:
+                if st.button("顧客情報を更新", use_container_width=True):
+                    business_card_path = current_card_path
+                    if edit_business_card_file is not None:
+                        ext = Path(edit_business_card_file.name).suffix.lower()
+                        safe_name = edit_company_name.strip().replace(" ", "_").replace("/", "_")
+                        image_path = IMAGE_DIR / f"{safe_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
+                        with open(image_path, "wb") as f:
+                            f.write(edit_business_card_file.getbuffer())
+                        business_card_path = str(image_path)
+
                     update_customer(
-                        int(selected_id),
-                        {
-                            "company_name": company_name_edit,
-                            "contact_name": contact_name_edit,
-                            "phone": phone_edit,
-                            "email": email_edit,
-                            "address1": address1_edit,
-                            "status": status_edit,
-                            "memo": memo_edit,
-                        },
+                        int(row["customer_id"]),
+                        (
+                            edit_category,
+                            edit_company_name,
+                            edit_department_name,
+                            edit_attn_name,
+                            edit_keisho,
+                            edit_contact_name,
+                            edit_rep_phone,
+                            edit_contact_phone,
+                            edit_phone,
+                            edit_email,
+                            edit_postal_code,
+                            edit_address1,
+                            edit_address2,
+                            edit_website_url,
+                            edit_staff,
+                            edit_status,
+                            edit_customer_rank,
+                            ",".join(edit_insurance_types),
+                            edit_industry,
+                            edit_annual_sales,
+                            edit_employee_count,
+                            edit_nankai_priority,
+                            edit_bcp_exists,
+                            edit_continuity_plan_applied,
+                            edit_sonpo_annual_premium,
+                            edit_seiho_annual_premium,
+                            normalize_renewal_month(edit_renewal_month),
+                            edit_memo,
+                            business_card_path,
+                            str(edit_last_contact_date),
+                            edit_next_action,
+                            str(edit_next_action_date),
+                        ),
                     )
                     st.success("更新しました。")
                     st.rerun()
 
-            with col_edit2:
-                if st.button("削除", use_container_width=True):
-                    delete_customer(int(selected_id))
+            with c_edit2:
+                if st.button("この顧客を削除", use_container_width=True):
+                    delete_customer(int(row["customer_id"]))
                     st.success("削除しました。")
                     st.rerun()
 
     with tab3:
         if customers_df.empty:
-            st.info("登録顧客はありません。")
+            st.info("まだ顧客データがありません。")
         else:
-            view_cols = [
-                "customer_id",
+            view_df = customers_df.copy().fillna("")
+            view_df["未接触日数"] = view_df["last_contact_date"].apply(days_since)
+            view_df["名刺画像"] = view_df["business_card_image"].apply(lambda x: "あり" if str(x).strip() else "")
+            view_df["参考用更新月"] = view_df["renewal_month"].apply(renewal_label)
+
+            columns = [
                 "company_name",
+                "category",
                 "contact_name",
-                "status",
-                "customer_rank",
-                "industry",
-                "staff",
-                "next_action_date",
+                "rep_phone",
+                "contact_phone",
+                "postal_code",
+                "address1",
+                "参考用更新月",
+                "website_url",
+                "名刺画像",
+                "未接触日数",
             ]
-            existing_cols = [c for c in view_cols if c in customers_df.columns]
-            st.dataframe(customers_df[existing_cols], use_container_width=True)
+            st.dataframe(view_df[columns], use_container_width=True)
 
 
-def show_customer_detail_page(customer_id, customers_df):
+def show_customer_detail_page(customers_df, policies_df, visit_logs_df, customer_names):
     st.subheader("顧客詳細")
 
-    if customers_df.empty:
-        st.warning("顧客データがありません。")
+    if not customer_names:
+        st.info("顧客データがありません。")
         return
 
-    target = customers_df[customers_df["customer_id"] == customer_id]
-    if target.empty:
-        st.error("対象顧客が見つかりません。")
-        return
+    selected_customer = st.selectbox("顧客を選択", customer_names)
+    row = customers_df[customers_df["company_name"] == selected_customer].iloc[0]
+    customer_id = int(row["customer_id"])
+    customer_policies = policies_df[policies_df["customer_id"] == customer_id].copy() if not policies_df.empty else pd.DataFrame()
 
-    row = target.iloc[0]
+    st.markdown('<div class="visit-box">', unsafe_allow_html=True)
+    st.markdown(f"## {row['company_name']}")
+    st.info(f"現在表示中: {row['company_name']}")
 
-    st.write(f"## {row.get('company_name', '')}")
-    st.write(f"担当者: {row.get('contact_name', '')}")
-    st.write(f"住所: {row.get('address1', '')}")
-    st.write(f"状態: {row.get('status', '')}")
-    st.write(f"業種: {row.get('industry', '')}")
-    st.write(f"南海優先度: {row.get('nankai_priority', '')}")
+    result_code = st.radio("今回の商談結果", RESULT_CODE_OPTIONS, horizontal=True, key="visit_result_code")
 
-    if row.get("memo"):
-        st.write("### 備考")
-        st.write(row.get("memo"))
+    c0, c1, c2 = st.columns([1.2, 1.2, 1])
+    with c0:
+        if st.button("🚗 訪問開始", use_container_width=True):
+            insert_visit_start(customer_id, row["company_name"])
+            st.success("訪問開始を記録しました。")
+            st.rerun()
+
+    with c1:
+        finish_memo = st.session_state.get("visit_finish_memo", "")
+        insurance_type_choice = st.session_state.get("visit_insurance_type", "")
+        carrier_type_choice = st.session_state.get("visit_carrier_type", "AIG")
+        renewal_month_choice = st.session_state.get("visit_renewal_month", 0)
+
+        finish_memo = st.text_input("終了メモ", value=finish_memo, key="visit_finish_memo")
+        insurance_type_choice = st.selectbox(
+            "保険種類",
+            [""] + ALL_INSURANCE_OPTIONS,
+            index=([""] + ALL_INSURANCE_OPTIONS).index(insurance_type_choice) if insurance_type_choice in [""] + ALL_INSURANCE_OPTIONS else 0,
+            key="visit_insurance_type",
+        )
+        carrier_type_choice = st.selectbox(
+            "AIG / 他社",
+            CARRIER_OPTIONS,
+            index=CARRIER_OPTIONS.index(carrier_type_choice) if carrier_type_choice in CARRIER_OPTIONS else 0,
+            key="visit_carrier_type",
+        )
+        renewal_month_choice = st.selectbox(
+            "更新月",
+            list(range(0, 13)),
+            index=normalize_renewal_month(renewal_month_choice),
+            format_func=renewal_label,
+            key="visit_renewal_month",
+        )
+
+        if st.button("🏁 訪問終了", use_container_width=True):
+            result = finish_visit(
+                customer_id=customer_id,
+                result_code=result_code,
+                memo=finish_memo,
+                insurance_type=insurance_type_choice,
+                carrier_type=carrier_type_choice,
+                renewal_month=renewal_month_choice,
+            )
+            if result is None:
+                st.error("訪問開始が未記録です。先に訪問開始を押してください。")
+            else:
+                st.success(f"訪問終了を記録しました（滞在 {result['duration_minutes']}分）")
+                if result_code == "A 成立":
+                    st.session_state["sales_from_visit"] = True
+                    st.session_state["sales_company"] = row["company_name"]
+                    st.session_state["sales_insurance_type"] = insurance_type_choice
+                    st.session_state["sales_carrier_type"] = carrier_type_choice
+                    st.session_state["sales_renewal_month"] = normalize_renewal_month(renewal_month_choice)
+                    st.session_state["menu"] = "日次入力"
+                    st.rerun()
+                elif result_code == "C 新規見込":
+                    next_date = (date.today() + timedelta(days=7)).strftime("%Y-%m-%d")
+                    insert_todo((
+                        row["company_name"],
+                        "新規見込フォロー",
+                        next_date,
+                        "未対応",
+                        "訪問終了から自動作成",
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    ))
+                    st.success(f"7日後ToDoを作成しました: {next_date}")
+
+    with c2:
+        if st.button("📝 訪問メモ登録", use_container_width=True):
+            st.session_state["menu"] = "訪問履歴"
+            st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    col_left, col_right = st.columns([1.2, 1])
+
+    with col_left:
+        st.write("### 基本情報")
+        rep_phone = str(row.get("rep_phone", "")).strip()
+        contact_phone = str(row.get("contact_phone", "")).strip()
+        other_phone = str(row.get("phone", "")).strip()
+        address1 = str(row.get("address1", "")).strip()
+        website_url = str(row.get("website_url", "")).strip()
+        memo_text = str(row.get("memo", "")).strip()
+
+        st.write(f"区分: {row['category']}")
+        st.write(f"担当者: {row['contact_name']}")
+        st.write(f"メール: {row['email']}")
+
+        st.write("### 📞 電話")
+        if rep_phone:
+            st.markdown(f"[📞 代表電話: {rep_phone}](tel:{rep_phone.replace('-', '')})")
+        if contact_phone:
+            st.markdown(f"[📞 担当者電話: {contact_phone}](tel:{contact_phone.replace('-', '')})")
+        if other_phone:
+            st.markdown(f"[📞 その他電話: {other_phone}](tel:{other_phone.replace('-', '')})")
+
+        st.write("### 📍 所在地")
+        if address1:
+            map_url = f"https://www.google.com/maps/search/{quote_plus(address1)}"
+            route_url = f"https://www.google.com/maps/dir/?api=1&destination={quote_plus(address1)}"
+            cm1, cm2 = st.columns(2)
+            with cm1:
+                st.link_button("📍 地図を見る", map_url, use_container_width=True)
+            with cm2:
+                st.link_button("🚗 ルート案内", route_url, use_container_width=True)
+            st.caption(address1)
+            if str(row.get("address2", "")).strip():
+                st.caption(str(row.get("address2", "")).strip())
+        else:
+            st.info("住所未登録")
+
+        st.write("### 🌐 Web")
+        if website_url:
+            st.link_button("🌐 会社HPを見る", website_url, use_container_width=True)
+        else:
+            st.info("HP未登録")
+
+        st.write("### 📘 備考 / OneNote")
+        if memo_text:
+            if memo_text.startswith("http") or memo_text.startswith("onenote:"):
+                st.link_button("📘 OneNoteを開く", memo_text, use_container_width=True)
+                st.code(memo_text)
+            else:
+                st.write(memo_text)
+        else:
+            st.info("備考は未登録です。")
+
+    with col_right:
+        st.write("### 名刺画像")
+        card_path = str(row.get("business_card_image", "")).strip()
+        if card_path and Path(card_path).exists():
+            detail_zoom = st.slider("名刺表示倍率", 50, 300, 100, 10, key="detail_card_zoom")
+            st.image(card_path, caption="保存済み名刺画像", width=int(420 * detail_zoom / 100))
+        else:
+            st.info("名刺画像は未登録です。")
+
+    st.write("### 加入中の保険種類")
+    with st.form("add_policy"):
+        policy_type = st.selectbox("保険種類", ALL_INSURANCE_OPTIONS)
+        carrier_type = st.selectbox("AIG / 他社", CARRIER_OPTIONS)
+        policy_status = st.selectbox("状態", POLICY_STATUS_OPTIONS)
+        policy_renewal_month = st.selectbox("更新月", list(range(0, 13)), format_func=renewal_label)
+        policy_memo = st.text_input("メモ")
+        add_policy_submitted = st.form_submit_button("契約追加")
+        if add_policy_submitted:
+            insert_policy((
+                customer_id,
+                row["company_name"],
+                policy_type,
+                carrier_type,
+                policy_status,
+                normalize_renewal_month(policy_renewal_month),
+                policy_memo,
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            ))
+            st.success("契約追加しました")
+            st.rerun()
+
+    if customer_policies.empty:
+        st.info("契約はまだ登録されていません。")
+    else:
+        customer_policies = customer_policies.sort_values("policy_id", ascending=False)
+        for _, p_row in customer_policies.iterrows():
+            st.markdown('<div class="section-box">', unsafe_allow_html=True)
+            st.write(
+                f"**{p_row['insurance_type']}** / "
+                f"{p_row['carrier_type']} / "
+                f"{p_row['status']} / "
+                f"{renewal_label(p_row['renewal_month'])}"
+            )
+
+            with st.form(f"edit_policy_{int(p_row['policy_id'])}"):
+                ep1, ep2, ep3 = st.columns(3)
+                with ep1:
+                    edit_policy_type = st.selectbox(
+                        "保険種類",
+                        ALL_INSURANCE_OPTIONS,
+                        index=ALL_INSURANCE_OPTIONS.index(p_row["insurance_type"]) if p_row["insurance_type"] in ALL_INSURANCE_OPTIONS else 0,
+                        key=f"policy_type_{int(p_row['policy_id'])}",
+                    )
+                with ep2:
+                    edit_policy_carrier = st.selectbox(
+                        "AIG / 他社",
+                        CARRIER_OPTIONS,
+                        index=CARRIER_OPTIONS.index(p_row["carrier_type"]) if p_row["carrier_type"] in CARRIER_OPTIONS else 0,
+                        key=f"policy_carrier_{int(p_row['policy_id'])}",
+                    )
+                with ep3:
+                    edit_policy_status = st.selectbox(
+                        "状態",
+                        POLICY_STATUS_OPTIONS,
+                        index=POLICY_STATUS_OPTIONS.index(p_row["status"]) if p_row["status"] in POLICY_STATUS_OPTIONS else 0,
+                        key=f"policy_status_{int(p_row['policy_id'])}",
+                    )
+
+                eq1, eq2 = st.columns(2)
+                with eq1:
+                    edit_policy_renewal = st.selectbox(
+                        "更新月",
+                        list(range(0, 13)),
+                        index=normalize_renewal_month(p_row["renewal_month"]),
+                        format_func=renewal_label,
+                        key=f"policy_renewal_{int(p_row['policy_id'])}",
+                    )
+                with eq2:
+                    edit_policy_memo = st.text_input("メモ", value=p_row["memo"], key=f"policy_memo_{int(p_row['policy_id'])}")
+
+                ebtn1, ebtn2 = st.columns(2)
+                with ebtn1:
+                    update_submitted = st.form_submit_button("更新")
+                with ebtn2:
+                    delete_submitted = st.form_submit_button("削除")
+
+                if update_submitted:
+                    update_policy(
+                        int(p_row["policy_id"]),
+                        (
+                            edit_policy_type,
+                            edit_policy_carrier,
+                            edit_policy_status,
+                            normalize_renewal_month(edit_policy_renewal),
+                            edit_policy_memo,
+                        ),
+                    )
+                    st.success("契約を更新しました。")
+                    st.rerun()
+
+                if delete_submitted:
+                    delete_policy(int(p_row["policy_id"]))
+                    st.success("契約を削除しました。")
+                    st.rerun()
+
+            st.markdown("</div>", unsafe_allow_html=True)
 
     render_bcp_section(row)
 
-    st.write("### 次回アクション")
-    st.write(row.get("next_action", ""))
+    st.write("### 訪問履歴")
+    customer_visit_logs = visit_logs_df[visit_logs_df["customer_id"] == customer_id] if not visit_logs_df.empty else pd.DataFrame()
+    if customer_visit_logs.empty:
+        st.info("訪問履歴なし")
+    else:
+        display_visit_df = customer_visit_logs.copy()
+        display_visit_df["renewal_month"] = display_visit_df["renewal_month"].apply(renewal_label)
+        st.dataframe(display_visit_df, use_container_width=True)
 
-    st.write("### 次回予定日")
-    st.write(row.get("next_action_date", ""))
 
 def show_daily_input_page(kpi_df, user_name):
     st.subheader("日次入力")
