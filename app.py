@@ -120,48 +120,8 @@ st.markdown(
 # =========================================================
 # 認証
 # =========================================================
-def safe_user_get(key: str, default=""):
-    try:
-        return st.user.get(key, default)
-    except Exception:
-        return default
-
-
-def auth_configured() -> bool:
-    try:
-        auth = st.secrets["auth"]
-        required = [
-            "redirect_uri",
-            "cookie_secret",
-            "client_id",
-            "client_secret",
-            "server_metadata_url",
-        ]
-        return all(str(auth.get(k, "")).strip() for k in required)
-    except Exception:
-        return False
-
-
-if not auth_configured():
-    st.error("Secrets の [auth] 設定が必要です。")
-    st.stop()
-
-if not bool(getattr(st.user, "is_logged_in", False)):
-    st.title(APP_TITLE)
-    st.write("Googleでログインしてください。")
-    if st.button("Googleでログイン", use_container_width=True):
-        st.login()
-    st.stop()
-
-user_email = safe_user_get("email", "")
-user_name = safe_user_get("name", "User")
-
-if ALLOWED_EMAILS and user_email not in ALLOWED_EMAILS:
-    st.error("このアカウントは利用できません。")
-    if st.button("ログアウト"):
-        st.logout()
-    st.stop()
-
+user_email = ""
+user_name = "本人"
 # =========================================================
 # DB
 # =========================================================
@@ -899,11 +859,7 @@ if "sales_from_visit" not in st.session_state:
 # =========================================================
 st.sidebar.title(APP_TITLE)
 st.sidebar.caption(f"ログイン中: {user_name}")
-st.sidebar.caption(user_email)
 
-if st.sidebar.button("ログアウト", use_container_width=True):
-    st.logout()
-    st.stop()
 
 # 題名なし・仕切りのみ
 for item in ["カレンダー", "ToDo一覧"]:
