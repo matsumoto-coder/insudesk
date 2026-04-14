@@ -593,6 +593,7 @@ def make_forecast(current_inforce, monthly_new_cases, avg_premium_per_case, avg_
 # =========================================================
 # バックアップ
 # =========================================================
+
 def backup_to_local():
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_path = BACKUP_DIR / f"insudesk_backup_{ts}.db"
@@ -965,7 +966,14 @@ elif menu == "バックアップ":
                     st.success(r)
             except Exception as e:
                 st.error(f"バックアップ失敗: {e}")
-
+    with open(db_path, "rb") as f:
+    st.download_button(
+        "DBをダウンロード",
+        data=f,
+        file_name=f"insudesk_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db",
+        mime="application/octet-stream",
+        use_container_width=True,
+    )
     with c2:
         if DB_PATH.exists():
             with open(DB_PATH, "rb") as f:
